@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "danslafoule-testdata"
+version = "0.1.0"
+description = "Dans la foule — shared test data seeding module (TestDataBuilder), used by backend repository tests and e2e tests"
+authors = []
+packages = [{ include = "testdata" }]
+
+[tool.poetry.dependencies]
+python = "^3.11,<3.12"
+sqlalchemy = "^2.0"
+test-data-builder = { git = "https://github.com/pascalheraud/test-data-builder-py.git", tag = "v1.1.1" }
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

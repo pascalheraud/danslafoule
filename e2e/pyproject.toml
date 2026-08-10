@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "danslafoule-e2e"
+version = "0.1.0"
+description = "Dans la foule — End-to-End tests (Playwright)"
+authors = []
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11,<3.12"
+playwright = "^1.49"
+pytest-playwright = "^0.6"
+testcontainers = { extras = ["postgres"], version = "^4.15.0" }
+sqlalchemy = "^2.0"
+psycopg = { extras = ["binary"], version = "^3.2" }
+danslafoule-testdata = { path = "../testdata", develop = true }
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
