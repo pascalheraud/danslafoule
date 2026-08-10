@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/setupTests.ts","./src/vite-env.d.ts","./src/app/App.tsx","./src/features/hello/HelloWorlds.test.tsx","./src/features/hello/HelloWorlds.tsx","./src/hooks/useHelloCount.ts","./src/services/helloService.ts"],"version":"5.9.3"}

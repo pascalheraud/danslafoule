@@ -1,0 +1,7 @@
+@use "../../styles/variables" as *;
+
+.message {
+  font-size: $font-size-lg;
+  font-family: $font-family;
+  color: $color-text-primary;
+}
