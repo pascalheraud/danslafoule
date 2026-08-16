@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Dans la foule logo">
+  <!--
+    Concept: a crowd of people (three overlapping heads, like a cluster of
+    dots seen from above in a crowd) with a small signal/speech arc between
+    two of them, symbolizing finding and talking to friends in a crowd.
+  -->
+  <circle cx="32" cy="32" r="30" fill="#eef4fb"/>
+
+  <!-- back-row crowd dots, faint -->
+  <circle cx="14" cy="22" r="4" fill="#8fb8e0"/>
+  <circle cx="50" cy="22" r="4" fill="#8fb8e0"/>
+  <circle cx="10" cy="38" r="3.5" fill="#a9c9e6"/>
+  <circle cx="54" cy="38" r="3.5" fill="#a9c9e6"/>
+
+  <!-- three people in front, the "found each other" group -->
+  <circle cx="22" cy="38" r="8" fill="#0b6bb3"/>
+  <circle cx="42" cy="38" r="8" fill="#0b6bb3"/>
+  <circle cx="32" cy="26" r="9" fill="#00a1e0"/>
+
+  <!-- connecting signal between them -->
+  <path d="M24 30 Q32 20 40 30" stroke="#ffffff" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  <circle cx="32" cy="16" r="2" fill="#ffffff"/>
+</svg>

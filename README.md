@@ -49,7 +49,7 @@ cd backend
 pyenv install 3.11.9   # if not already installed
 pyenv local 3.11.9
 poetry install
-# poetry run uvicorn app.main:app --reload
+poetry run uvicorn app.main:app --reload
 ```
 
 ### 3. Frontend (React)

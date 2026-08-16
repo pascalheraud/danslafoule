@@ -22,5 +22,9 @@ def get_db() -> Iterator[Session]:
     db = SessionLocal()
     try:
         yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

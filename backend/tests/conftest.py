@@ -16,7 +16,7 @@ from testdata import DanslafouleTestDataBuilder
 @pytest.fixture(scope="session")
 def postgres_engine() -> Iterator[Engine]:
     with PostgresContainer("postgres:16-alpine", driver="psycopg") as postgres:
-        engine = create_engine(postgres.get_connection_url())
+        engine = create_engine(postgres.get_connection_url(), connect_args={"options": f"-c search_path={SCHEMA}"})
         with engine.begin() as conn:
             conn.execute(CreateSchema(SCHEMA))
         Base.metadata.create_all(bind=engine)
