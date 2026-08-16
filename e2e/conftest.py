@@ -1,4 +1,6 @@
+import contextlib
 import os
+import socket
 import subprocess
 import time
 import urllib.request
@@ -15,7 +17,14 @@ from testdata import DanslafouleTable, DanslafouleTestDataBuilder
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BACKEND_DIR = REPO_ROOT / "backend"
 FRONTEND_DIR = REPO_ROOT / "frontend"
-APP_URL = "http://127.0.0.1:8000"
+
+
+def _free_port() -> int:
+    # Bind to port 0 to let the OS hand back an unused port, then release it —
+    # avoids clashing with a developer's own backend already running on 8000.
+    with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 @pytest.fixture(scope="session")
@@ -40,14 +49,16 @@ def _build_frontend() -> None:
 @pytest.fixture(scope="session")
 def app_url(db_url: str, _build_frontend: None) -> Iterator[str]:
     backend_python = BACKEND_DIR / ".venv" / "bin" / "python"
+    port = _free_port()
+    url = f"http://127.0.0.1:{port}"
     process = subprocess.Popen(
-        [str(backend_python), "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
+        [str(backend_python), "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port)],
         cwd=BACKEND_DIR,
         env={**os.environ, "DATABASE_URL": db_url},
     )
     try:
-        _wait_for_health(f"{APP_URL}/api/health")
-        yield APP_URL
+        _wait_for_health(f"{url}/api/health")
+        yield url
     finally:
         process.terminate()
         process.wait(timeout=10)
@@ -68,5 +79,7 @@ def _wait_for_health(url: str, timeout: float = 20.0) -> None:
 
 @pytest.fixture
 def builder(db_engine: Engine, app_url: str) -> DanslafouleTestDataBuilder:
-    # depends on app_url so the app has already created the schema/tables on startup
-    return DanslafouleTestDataBuilder(db_engine, DatabaseVendor.POSTGRESQL).with_delete_all(DanslafouleTable.HELLO_WORLD)
+    # depends on app_url so the app has already created the schema/tables on startup.
+    return DanslafouleTestDataBuilder(db_engine, DatabaseVendor.POSTGRESQL).with_delete_all(
+        DanslafouleTable.MESSAGE,
+    )

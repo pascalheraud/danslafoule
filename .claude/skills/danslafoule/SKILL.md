@@ -11,14 +11,12 @@ Project name: Dans la foule
 
 Project type: monorepo
 
-Monorepo modules:
-- frontend: React application
-- backend: Python API
-
-Confirmed stack versions:
-- Frontend: React 19.2, Node 25.6, TypeScript (`.tsx`), SCSS for styles.
-- Backend: FastAPI on Python 3.11.
-- Python tooling: Pyenv (Python version management), Poetry (dependency and build management), Pytest (testing). `cibuildwheel`, `Pyarmor`, and `PyInstaller` are part of the Python toolchain for wheel building, code protection, and packaging when the project needs to ship a standalone Python artifact — not required for the FastAPI web backend itself.
+Monorepo modules (see §4 for the full tree, §9 for the skills each one uses):
+- `backend/`: the Python/FastAPI HTTP API — the only writer of business data.
+- `frontend/`: the React application.
+- `db/`: no code — just the `docker-compose.yml` running the local dev PostgreSQL instance.
+- `testdata/`: a small shared Python package (`danslafoule-testdata`) with test-data-builder mappings, depended on by `backend/` and `e2e/` so both seed test data through the same code.
+- `e2e/`: a separate Python/Playwright project driving the real built frontend against a real backend + Postgres.
 
 Overall objective:
 - Build a modern application split into coherent modules.
@@ -83,11 +81,13 @@ danslafoule/
       components/
       features/
       services/
-      hooks/
       styles/
   db/
     docker-compose.yml
   testdata/          # shared TestDataBuilder-based seeding module, used by backend repository tests and e2e tests
+  e2e/
+    pages/
+    tests/
   doc/
     issues/
   shared/            # optional — contracts/types/validators shared between frontend and backend, added only when actually needed
@@ -105,7 +105,8 @@ Associated rules:
 - Code is written in TypeScript (`.tsx`); styles are written in SCSS.
 - Prefer the Siemens iX component library ([[siemens-ix-react]], built on [[siemens-ix]]) over custom components when it already covers the need; fall back to a custom component only when the library doesn't provide it.
 - Components must stay UI-oriented and not contain too much business logic.
-- Data must pass through proper services or hooks.
+- Data must pass through proper services.
+- No dedicated custom-hook files (no `hooks/useX.ts`) for data fetching or per-screen side effects, per [[component-design]]'s "custom hooks are not the default" rule — a `Screen`/feature component that owns a piece of state calls plain, testable service functions (`services/`) directly from its own `useState`/`useEffect`. A hook file is only justified for behavior genuinely reused across 2+ components (e.g. a browser event subscription) — not yet the case anywhere in this project.
 - Loading, error, and empty states must be handled explicitly.
 - Network calls must be encapsulated in coherent services.
 - Components must be reasonably small and reusable.
@@ -138,24 +139,16 @@ Associated rules:
 - Services must be testable in isolation.
 - Data access must go through explicit abstractions.
 - The backend uses FastAPI on Python 3.11.
+- Python tooling: Pyenv (version management), Poetry (dependency/build management), Pytest (testing). `cibuildwheel`, `Pyarmor`, and `PyInstaller` are for wheel building, code protection, and packaging when shipping a standalone Python artifact — not needed for the FastAPI web backend itself. This same tooling baseline applies to `testdata/` and `e2e/` too — each is its own Poetry project, not just `backend/`.
 - Persistence is managed via SQLAlchemy ORM.
+- Database schema conventions (primary key strategy, timestamp columns, schema/search_path) are documented in [[danslafoule-db]] and apply to every table.
 - Backend integration tests run against a real Postgres started via Testcontainers ([[testcontainers]]), session-scoped, with per-test isolation via transaction rollback — not an in-memory SQLite substitute, to avoid Postgres/SQLite behavior divergence.
-- Test data seeding for backend repository tests and e2e tests goes through the shared `testdata/` module ([[test-data-builder-usage]]), a local `danslafoule-testdata` Poetry package (path dependency from `backend` and `e2e`) wrapping `test-data-builder-py` (pinned to `v1.0.0`) with this project's `DanslafouleTable`/`HelloWorldColumn` mapping and `DanslafouleTestDataBuilder`. Backend repository tests get isolation from transaction rollback, so they only need `create()`; e2e tests (no rollback) must call `apply()`.
-
-### Technology skills used by the project
-
-The project architecture is described at the monorepo level and references the relevant technology skills instead of embedding the full stack in the Python skill:
-
-- [[react]] for React frontend conventions.
-- [[fastapi]] for the HTTP API layer.
-- [[sqlalchemy]] for ORM persistence and database access patterns.
-- [[postgresql]] for database schema and persistence conventions.
-- [[pytest]] for automated validation.
-- [[pyenv]] and [[poetry]] for the Python environment and dependency management.
+- Test data seeding for backend repository tests and e2e tests goes through the shared `testdata/` module ([[test-data-builder-usage]]), a local `danslafoule-testdata` Poetry package (path dependency from `backend` and `e2e`) wrapping `test-data-builder-py` (pinned to `v1.0.0`) with this project's `DanslafouleTable`/`MessageColumn` mapping and `DanslafouleTestDataBuilder`. Backend repository tests get isolation from transaction rollback, so they only need `create()`; e2e tests (no rollback) must call `apply()`.
+- Service-level start/end logging (per [[api]]'s "Logging" convention) uses [[backend/python/logging]]'s **Option 1 — explicit decorator** (`@logged` on each service method) — not the auto-wrapping base class or a DI/AOP mechanism, since this project has no DI container and the explicit-at-the-call-site tradeoff fits its small service count.
 
 Usage rules:
 - The project-level architecture remains the authoritative location for the stack decision.
-- Tooling details stay in their dedicated technology skills.
+- Tooling details stay in their dedicated technology skills — see §9 for the full list, grouped by module.
 - The Python skill remains focused on Python language convention and backend organization.
 - The persistence layer must keep a clear separation between ORM models and business logic.
 
@@ -178,27 +171,59 @@ Usage rules:
 
 ## 9. Claude skills to use for this project
 
-The skills to prioritize for this monorepo are the following, and only those that match the project stack and architecture:
+This monorepo has five code modules, each with its own dependency manifest and its own concerns (see §4 for the full tree):
+
+- **`backend/`** — the Python/FastAPI HTTP API, the only writer of business data, backed by PostgreSQL via SQLAlchemy.
+- **`frontend/`** — the React app, consuming the backend's API and owning all UI/UX concerns.
+- **`db/`** — no code, just the `docker-compose.yml` that runs the local dev PostgreSQL instance the other modules connect to.
+- **`testdata/`** — a small shared Python package (`danslafoule-testdata`) with no purpose on its own; it exists purely to be depended on by `backend/` (repository tests) and `e2e/` (seeding), so both build their test data through the same `DanslafouleTestDataBuilder` instead of duplicating insert logic.
+- **`e2e/`** — a separate Python/Playwright project that drives the real built frontend against a real backend instance and a real (Testcontainers) Postgres — it depends on `testdata/` for seeding, but is otherwise independent of both `backend/` and `frontend/`'s own toolchains.
+
+The skills below are grouped by which of these modules they apply to; only load the ones relevant to the module you're actually touching.
+
+### `backend/`
 
 - `languages/python`: Python language conventions, typing, and module structure — independent of any framework or tooling choice.
 - `languages/python/python-3.11`: language features specific to the Python 3.11 version used by this project.
+- `backend/generic/api`: framework-agnostic backend API conventions (route/service split, status codes, logging) that [[fastapi]] implements concretely for this project.
 - `backend/python`: backend architecture, layering, DI, and persistence boundaries — independent of the concrete web framework.
 - `backend/python/fastapi`: FastAPI-specific conventions — routers, Pydantic request/response models, dependency injection, error handling, route tests.
+- `backend/python/sqlalchemy`: ORM/persistence conventions and SQL query logging.
+- `backend/python/pydantic-settings`: configuration/settings conventions (`app/core/config.py`).
+- `backend/python/logging`: service-call logging patterns — this project uses **Option 1, the explicit decorator** (see §6 above).
 - `backend/python/test`: backend testing best practices and application validation, independent of the concrete test framework.
+- `test/pytest`: the concrete test framework/runner backend tests use.
+- `tooling/testcontainers`, `languages/python/tooling/testcontainers`: backend integration tests run against a real containerized Postgres with transaction-rollback isolation, not an in-memory SQLite stand-in.
+- `languages/python/tooling/pyenv`, `languages/python/tooling/poetry`: Python environment and dependency management (also applies to `testdata/` and `e2e/`, each with their own Poetry project).
+- `languages/python/tooling/venv`: virtualenv naming and gitignore conventions (same cross-module scope as pyenv/poetry above).
+- `languages/python/tooling/cibuildwheel`, `languages/python/tooling/pyarmor`, `languages/python/tooling/pyinstaller`: only relevant if/when the project ships a packaged Python artifact — not needed for the FastAPI web backend itself.
+- `danslafoule-db`: this project's own database schema conventions (PK strategy, timestamps, schema/search_path) — project-specific, not a generic tool skill.
+
+### `frontend/`
+
 - `frontend/react`: React conventions, components, hooks, frontend services, and interface organization.
 - `frontend/react/typescript`: TypeScript conventions for `.tsx` React code.
 - `frontend/react/css`: SCSS Modules conventions for component styles.
 - `frontend/react/test-vitest`: Vitest unit-testing conventions for React components.
 - `frontend/siemens-ix`: Siemens iX design system — framework-agnostic packages, theming, and icon conventions.
 - `frontend/react/siemens-ix-react`: Siemens iX for React — `@siemens/ix-react` setup and component usage.
-- `test/e2e/playwright`: Playwright end-to-end testing conventions.
-- `test/pytest`: global project testing framework and automated validation.
-- `tooling/testcontainers`, `languages/python/tooling/testcontainers`: backend integration tests run against a real containerized Postgres with transaction-rollback isolation, not an in-memory SQLite stand-in.
-- `third-party/test-data-builder-usage`: wiring the `test-data-builder-py` library into the shared `testdata/` module used by backend and e2e tests.
-- `languages/python/tooling/pyenv`, `languages/python/tooling/poetry`: Python environment and dependency management.
-- `languages/python/tooling/venv`: virtualenv naming and gitignore conventions.
-- `languages/python/tooling/cibuildwheel`, `languages/python/tooling/pyarmor`, `languages/python/tooling/pyinstaller`: only relevant if/when the project ships a packaged Python artifact — not needed for the FastAPI web backend itself.
+
+### `db/`
+
 - `tooling/docker`: Docker/Docker Compose conventions for the dev database and any other containerized service.
+- `danslafoule-db`: the schema/naming conventions the running database actually enforces (cross-referenced from `backend/` above too, since that's what creates the schema).
+
+### `testdata/`
+
+- `third-party/test-data-builder-usage`: wiring the `test-data-builder-py` library into this shared package's `DanslafouleTable`/`MessageColumn` mapping and `DanslafouleTestDataBuilder`, consumed as a path dependency by both `backend/` and `e2e/`.
+- `languages/python`, `languages/python/python-3.11`, `languages/python/tooling/poetry`: same Python language/tooling baseline as `backend/` — this is a small but real Poetry package of its own.
+
+### `e2e/`
+
+- `test/e2e/playwright`: Playwright end-to-end testing conventions.
+- `backend/python/test/playwright-python`: the Python/pytest/Testcontainers-specific flavor of that — this project's e2e suite is Python, not JS/TS, driving Playwright against the built frontend.
+- `third-party/test-data-builder-usage`, `tooling/testcontainers`, `languages/python/tooling/testcontainers`: seeding and the real Postgres instance, same as `backend/`'s integration tests but from a separate Poetry project.
+- `languages/python`, `languages/python/python-3.11`, `languages/python/tooling/pyenv`, `languages/python/tooling/poetry`: same Python language/tooling baseline as `backend/`.
 
 Clear separation rule:
 - best practices for each tool must be recorded in that tool’s own skill,
@@ -236,30 +261,4 @@ As soon as a technical or architectural decision is validated:
 
 This skill serves as the central reference for the monorepo and must remain consistent with the decisions actually implemented in the code.
 
-## 12. Global changelog
-
-The project changelog follows the evolution of the monorepo with each issue. It must be updated for every important decision, new feature, bug fix, or architecture refactor.
-
-Rules:
-- a significant change must be added to this section,
-- entries are ordered from newest to oldest,
-- each entry must mention the context, purpose, and impact,
-- issues must remain readable without rereading the whole codebase.
-
-Recommended format:
-
-```markdown
-### Issue X — YYYY-MM-DD
-- Added:
-- Modified:
-- Fixed:
-- Impact:
-```
-
-### Issue 1 — 2026-08-10
-- Added: initialization of the `danslafoule` monorepo (`backend/`, `frontend/`, `db/`, `doc/`), PostgreSQL dev environment via Docker Compose, FastAPI backend on Python 3.11 with SQLAlchemy persistence, and a fully working Hello n worlds slice — `GET /api/hello-count` backed by a `hello_worlds` table, a React `HelloWorlds` component consuming it, with pytest (backend) and Vitest (frontend) coverage. Confirmed exact stack versions: React 19.2, Node 25.6, TypeScript/SCSS frontend, Siemens iX component library ([[siemens-ix]] / [[siemens-ix-react]]), Vite dev/build modes served by the backend in build mode, Vitest + Playwright testing, and the full Python tooling set (Pyenv, Poetry, Pytest, cibuildwheel, Pyarmor, PyInstaller).
-- Modified: creation of the project reference structure and the architecture/development convention documentation.
-- Fixed: no major functional fixes; this issue focuses on building the technical foundation.
-- Impact: end-to-end path verified locally (Postgres → SQLAlchemy → FastAPI → React, both dev and build modes). Verification in this sandbox used Python 3.12 and Node 20 (pyenv/Poetry/Node 25.6 unavailable here) — re-verify on the pinned exact versions before considering issue 1 fully closed. The project is otherwise ready for the next issue.
-
-The changelog must be updated for every new issue, without exception, to maintain a clear history of the project’s evolution.
+The change history itself (what shipped in each issue) lives in [`CHANGELOG.md`](../../../CHANGELOG.md) at the repo root, not in this skill — a skill documents standing conventions and architecture, not a per-issue timeline.

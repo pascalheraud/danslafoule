@@ -5,9 +5,13 @@ from testdatabuilder.generic import TestColumn, TestTable
 SCHEMA = "danslafoule"
 
 
-class HelloWorldColumn(TestColumn, Enum):
+class MessageColumn(TestColumn, Enum):
     ID = "id"
+    UUID = "uuid"
+    CONTENT = "content"
+    RECEIVED_AT = "received_at"
     CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
 
     @property
     def sql_name(self) -> str:
@@ -15,9 +19,9 @@ class HelloWorldColumn(TestColumn, Enum):
 
 
 class DanslafouleTable(TestTable, Enum):
-    HELLO_WORLD = ("hello_worlds", HelloWorldColumn)
+    MESSAGE = ("message", MessageColumn)
 
-    def __init__(self, table_name: str, column_enum: type[HelloWorldColumn]) -> None:
+    def __init__(self, table_name: str, column_enum: type[TestColumn]) -> None:
         self._table_name = table_name
         self._column_enum = column_enum
 
@@ -26,5 +30,5 @@ class DanslafouleTable(TestTable, Enum):
         return f"{SCHEMA}.{self._table_name}"
 
     @property
-    def columns(self) -> list[HelloWorldColumn]:
+    def columns(self) -> list[TestColumn]:
         return list(self._column_enum)

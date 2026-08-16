@@ -17,7 +17,7 @@ docker compose down
 ## Default settings
 
 - Database: `danslafoule`
-- User: `danslafoule`
+- User: `danslafouleapp`
 - Password: `danslafoule`
 - Port: `5432`
 
@@ -25,7 +25,7 @@ docker compose down
 
 ```bash
 export POSTGRES_DB=danslafoule
-export POSTGRES_USER=danslafoule
+export POSTGRES_USER=danslafouleapp
 export POSTGRES_PASSWORD=danslafoule
 ```
 
@@ -34,11 +34,11 @@ export POSTGRES_PASSWORD=danslafoule
 Example DSN:
 
 ```text
-postgresql+psycopg://danslafoule:danslafoule@localhost:5432/danslafoule
+postgresql+psycopg://danslafouleapp:danslafoule@localhost:5432/danslafoule
 ```
 
 ## Notes
 
 - This container is intended for local development.
-- Data is persisted in the `postgres_data` Docker volume.
+- Data is persisted in the `danslafoule_postgres_data` Docker volume.
 - For a production environment, use a stricter configuration with separate secrets.
