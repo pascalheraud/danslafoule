@@ -1,20 +1,33 @@
+// UI-facing view types. Identity/group/message persistence and crypto all
+// live in features/protocol/* — these services are thin adapters over it.
+
 export interface Profile {
-  uuid: string;
-  name: string;
+  pseudo: string;
 }
 
 export interface GroupSummary {
-  uuid: string;
-  /** Known for a group the user created; may be null for one they only joined, until a message reveals its name. */
-  name: string | null;
+  groupId: string;
+  name: string;
+  paused: boolean;
+  unreadCount: number;
 }
 
-export interface Message {
-  uuid: string;
-  groupUuid: string;
-  groupName: string;
-  authorUuid: string;
-  authorName: string;
+export interface ChatMessageEntry {
+  kind: "chat";
+  messageId: string;
   text: string;
-  receivedAt: string;
+  authorName: string;
+  isSelf: boolean;
+  sentAt: number;
 }
+
+// A synthesized "X is now Y" rename notice (protocol spec §6.4) — no author,
+// rendered centered/muted rather than as a chat bubble.
+export interface SystemMessageEntry {
+  kind: "system";
+  messageId: string;
+  text: string;
+  sentAt: number;
+}
+
+export type ChatMessageView = ChatMessageEntry | SystemMessageEntry;

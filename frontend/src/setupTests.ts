@@ -9,7 +9,8 @@ class ObserverStub {
   unobserve() {}
   disconnect() {}
 }
-globalThis.IntersectionObserver ??= ObserverStub as unknown as typeof IntersectionObserver;
+globalThis.IntersectionObserver ??=
+  ObserverStub as unknown as typeof IntersectionObserver;
 globalThis.ResizeObserver ??= ObserverStub as unknown as typeof ResizeObserver;
 
 // Node 25+ defines a native `localStorage`/`sessionStorage` global that comes
@@ -58,8 +59,34 @@ for (const key of ["localStorage", "sessionStorage"] as const) {
 // jsdom implements `attachInternals()` but not the full ElementInternals
 // form-association API, which Siemens iX's Stencil components (e.g.
 // ix-input) call unconditionally in componentWillLoad — stub the missing
-// methods so components mount cleanly in tests.
-if (typeof ElementInternals !== "undefined" && !("setFormValue" in ElementInternals.prototype)) {
+// methods on both the prototype and the concrete instance returned by
+// `attachInternals()`, so the web components mount cleanly in tests.
+if (
+  typeof HTMLElement !== "undefined" &&
+  "attachInternals" in HTMLElement.prototype
+) {
+  const originalAttachInternals = HTMLElement.prototype.attachInternals;
+
+  HTMLElement.prototype.attachInternals = function () {
+    const internals = originalAttachInternals.call(this);
+    Object.assign(internals, {
+      setFormValue() {},
+      setValidity() {},
+      checkValidity() {
+        return true;
+      },
+      reportValidity() {
+        return true;
+      },
+    });
+    return internals;
+  };
+}
+
+if (
+  typeof ElementInternals !== "undefined" &&
+  !("setFormValue" in ElementInternals.prototype)
+) {
   Object.assign(ElementInternals.prototype, {
     setFormValue() {},
     setValidity() {},

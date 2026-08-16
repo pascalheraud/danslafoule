@@ -1,22 +1,71 @@
 .group {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  height: 100%;
   max-width: 32rem;
-  margin: 2rem auto;
-  padding: 0 1rem;
+  margin: 0 auto;
 }
 
 .header {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  flex-shrink: 0;
+  padding: 0 1rem;
 }
 
 .uuidRow {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+// Positioning context for the floating scroll-to-bottom button — a sibling
+// of the scrollable div itself, so it stays put in the viewport instead of
+// scrolling away with the message list.
+.messagesWrapper {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+// The only scrollable region: header and form stay put, this fills
+// whatever vertical space is left (min-height: 0 is required for a flex
+// child to actually shrink and scroll instead of growing with its content).
+.messagesScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 1rem;
+}
+
+.scrollToBottomWrapper {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+}
+
+// White on red, bottom-right of the scroll-to-bottom button — hidden
+// entirely at 0 (see GroupScreen.tsx: never rendered when unreadCount is 0,
+// a badge can't meaningfully show "0" unread).
+.unreadBadge {
+  position: absolute;
+  top: -0.25rem;
+  right: -0.25rem;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  padding: 0 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: var(--theme-color-danger, #d0021b);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .messageList {
@@ -32,13 +81,45 @@
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
+  max-width: 85%;
   padding: 0.5rem;
-  border-radius: 0.25rem;
-  background-color: var(--theme-color-bg-1, #f4f4f4);
+  border-radius: 0.75rem;
+  transition: background-color 1s ease-out;
+}
+
+.messageBody {
+  min-width: 0;
+}
+
+// Someone else's message: avatar+bubble on the left (default flow order).
+.messageOther {
+  align-self: flex-start;
+  background-color: var(--theme-color-bg-1, #e4e4e4);
+}
+
+// This device's own message: avatar+bubble on the right — same row layout,
+// just reversed, so the avatar still sits next to the text instead of at
+// the outer edge of the screen.
+.messageSelf {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+  background-color: var(--theme-color-success-weak, #dff2df);
+  text-align: right;
+}
+
+// A rename notice ("Alice is now Bob") — centered, no avatar/bubble, unlike
+// a real chat message.
+.systemMessage {
+  align-self: center;
+  padding: 0.25rem 0;
+  opacity: 0.65;
+  text-align: center;
 }
 
 .form {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  flex-shrink: 0;
+  padding: 1rem;
 }

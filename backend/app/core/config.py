@@ -14,7 +14,11 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, env_prefix="")
 
     database_url: str
-    message_ttl_hours: float = 24
+    # Fixed at 1h to match the relay's purge rule (protocol spec §8.3: "a
+    # simple, fixed rule... independent of the ttl carried by each envelope").
+    # Exposed as a setting (rather than a hardcoded constant) for testability,
+    # not because it's meant to vary per deployment.
+    message_ttl_hours: float = 1
     log_level: str = "INFO"
     sql_echo: bool = False
 

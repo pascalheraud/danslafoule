@@ -18,6 +18,29 @@ Format:
 - Impact:
 ```
 
+### Issue 4 — 2026-08-23
+- Added: the real end-to-end encrypted protocol (spec §1–§11) replacing issue 3's plaintext relay —
+  Ed25519 identity + AES-GCM envelopes, `announce`/`chat`/`location`/`ack`/`rename` payloads, an
+  opaque-cursor HTTP relay (`POST`/`GET /api/v1/groups/{id}/messages`) with 1h purge and per-IP rate
+  limiting, and a text-invite group join/create flow (QR rendering/scanning still deferred — the
+  invite is a plain copy/paste string today). Full messaging UI on top: onboarding, home/group
+  screens, React Router with scroll restoration, client-side inactivity pause, unread tracking
+  surfaced in four places, a "Me" screen with pseudo renaming, and an app menu. Two-device Playwright
+  e2e scenario covering create → invite join → chat → decrypt → ack.
+- Modified: `since` redesigned from a client-clock timestamp to a server-assigned monotonic cursor,
+  to fix a resend/clock-drift message-loss bug. Backend now falls back to `index.html` for any
+  unresolved static path, so a reload/direct link on a React Router route (e.g. `/groups/:id`) no
+  longer 404s.
+- Fixed: a bad merge that had concatenated issue 3's plaintext messaging path with the new encrypted
+  one (duplicated routes/imports across several backend files) — the plaintext path was removed
+  entirely and the merge's genuinely good additions (structured logging, the DB PK convention,
+  `get_db()` auto-commit) kept. Two frontend TypeScript regressions (`HeaderActiveGroup`'s state
+  narrowing, `GroupScreen` filtering `SystemMessageEntry` as if it had `isSelf`) that had crept into
+  the working tree and were blocking `npm run build`.
+- Impact: backend 25/25, frontend 106/106, e2e 8/8, all green. Server never sees plaintext — only the
+  opaque envelope round-trips through storage. Still deferred: QR invite rendering/scanning. Full
+  decision trail in `doc/issues/4-base-protocol-comm/plan.md`.
+
 ### Issue 3 — 2026-08-16
 - Added: user identity and groups, kept entirely client-side (IndexedDB, no backend persistence); ephemeral group messaging relayed through a minimal backend that only ever stores a message's `uuid`, opaque `content`, and server-assigned `received_at`, purged by TTL. Frontend: Siemens iX app shell (`IxApplication`/`IxApplicationHeader`/`IxMenu`) around `Onboarding`/`Home`/`GroupScreen`, a message-compose form, and a new logo. Playwright e2e coverage for all 5 spec personas.
 - Modified: new `danslafoule-db` skill for DB conventions; documented that this project doesn't use dedicated hook files. DB role renamed `danslafoule` → `danslafouleapp`, decoupled from the schema name.

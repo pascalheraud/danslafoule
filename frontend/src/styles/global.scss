@@ -1,5 +1,15 @@
 @use "variables" as *;
 
+// Establishes a definite height chain from the viewport down to whatever
+// IxApplication/IxContent render as their content area, so a screen that
+// wants to fill 100% of it (see GroupScreen.module.scss) has something
+// concrete to size against instead of collapsing to its content's height.
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   font-family: $font-family;
