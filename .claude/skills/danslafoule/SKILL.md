@@ -110,6 +110,13 @@ Associated rules:
 - Loading, error, and empty states must be handled explicitly.
 - Network calls must be encapsulated in coherent services.
 - Components must be reasonably small and reusable.
+- Routing uses **React Router v6** (`BrowserRouter`), per [[routing]]/[[frontend/web]]'s "every page
+  must support Back, Forward, and reload" rule — every screen (Home, a group's chat) has its own
+  distinct URL (`/`, `/groups/:groupId`) via `<Routes>`/`<Route>`, not in-memory-only navigation state.
+  Typed route paths live in `routes.ts` (`ROUTES`/`buildRoute`), navigation goes through
+  `useAppNavigate()`/`<Link>`, never a hand-typed path string. Onboarding is the one exception: a
+  pre-app gate shown before any route renders, not a route of its own, since it's not a page meant to
+  be linked to, reloaded into, or reachable via Back.
 
 ### Frontend run modes
 
@@ -202,6 +209,7 @@ The skills below are grouped by which of these modules they apply to; only load 
 ### `frontend/`
 
 - `frontend/react`: React conventions, components, hooks, frontend services, and interface organization.
+- `frontend/react/routing`: React Router v6 conventions — route definitions, typed navigation, Back button rules.
 - `frontend/react/typescript`: TypeScript conventions for `.tsx` React code.
 - `frontend/react/css`: SCSS Modules conventions for component styles.
 - `frontend/react/test-vitest`: Vitest unit-testing conventions for React components.

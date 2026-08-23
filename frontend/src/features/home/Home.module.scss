@@ -21,11 +21,57 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  // Without an explicit width, IxCardContent's own layout can leave this row
+  // shrink-wrapped to its content — margin-left: auto on the toggle then has
+  // no spare width to push into, so it visually sits right next to the name
+  // instead of at the card's right edge.
+  width: 100%;
+  // Own background/radius so a paused group visually dims without touching
+  // IxCard's own border/elevation styling (which broke when toggled there).
+  border-radius: 0.25rem;
+}
+
+.groupCardTitlePaused {
+  background-color: var(--theme-color-weak-1, #e0e0e0);
+  opacity: 0.75;
 }
 
 .groupCardIcon {
   width: 1.25rem;
   height: 1.25rem;
+  flex-shrink: 0;
+}
+
+.groupCardName {
+  flex: 1 1 auto;
+  // Truncate long names instead of wrapping/pushing the toggle out of view.
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+  color: inherit;
+}
+
+.groupCardBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  background-color: var(--theme-color-danger, #d0021b);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.groupCardToggle {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .form {

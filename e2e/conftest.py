@@ -78,6 +78,17 @@ def _wait_for_health(url: str, timeout: float = 20.0) -> None:
 
 
 @pytest.fixture
+def browser_context_args(browser_context_args: dict) -> dict:
+    # AppPage.copy_invite() reads/writes navigator.clipboard; Playwright
+    # grants no clipboard permission by default, which hangs writeText()
+    # rather than raising. Contexts opened by hand (multi-device scenarios,
+    # via browser.new_context()) don't go through this fixture and must
+    # request the same permissions explicitly — see
+    # AppPage.open_in_new_context().
+    return {**browser_context_args, "permissions": ["clipboard-read", "clipboard-write"]}
+
+
+@pytest.fixture
 def builder(db_engine: Engine, app_url: str) -> DanslafouleTestDataBuilder:
     # depends on app_url so the app has already created the schema/tables on startup.
     return DanslafouleTestDataBuilder(db_engine, DatabaseVendor.POSTGRESQL).with_delete_all(

@@ -1,75 +1,96 @@
-import { IxApplication, IxApplicationHeader, IxContent, IxMenu, IxMenuItem, IxSpinner } from "@siemens/ix-react";
-import { iconGroup } from "@siemens/ix-icons/icons";
+import {
+  IxApplication,
+  IxApplicationHeader,
+  IxContent,
+  IxMenu,
+  IxSpinner,
+} from "@siemens/ix-react";
 import { useEffect, useState } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { GroupScreen } from "../features/group/GroupScreen";
 import { Home } from "../features/home/Home";
+import { MeScreen } from "../features/me/MeScreen";
 import { Onboarding } from "../features/onboarding/Onboarding";
-import { getOrCreateDeviceUuid } from "../services/identity";
+import { ROUTES } from "../routes";
+import { getProfile, setProfilePseudo } from "../services/profileService";
 import type { Profile } from "../services/types";
-import { getProfile, setProfileName } from "../services/userService";
+import { GroupsMenu } from "./GroupsMenu";
+import { HeaderActiveGroup } from "./HeaderActiveGroup";
+import { ScrollRestoration } from "./ScrollRestoration";
+import { startGlobalPoller } from "../services/globalPoller";
 
-type ProfileState = { status: "loading" } | { status: "unregistered" } | { status: "ready"; profile: Profile };
-
-type Screen = { name: "home" } | { name: "group"; groupUuid: string };
+type ProfileState =
+  | { status: "loading" }
+  | { status: "unregistered" }
+  | { status: "ready"; profile: Profile };
 
 export function App() {
-  const [deviceUuid] = useState(getOrCreateDeviceUuid);
-  const [profileState, setProfileState] = useState<ProfileState>({ status: "loading" });
-  const [screen, setScreen] = useState<Screen>({ name: "home" });
+  const [profileState, setProfileState] = useState<ProfileState>({
+    status: "loading",
+  });
+  const [menuExpanded, setMenuExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     getProfile().then((profile) => {
       if (cancelled) return;
-      setProfileState(profile ? { status: "ready", profile } : { status: "unregistered" });
+      setProfileState(
+        profile ? { status: "ready", profile } : { status: "unregistered" },
+      );
     });
 
     return () => {
       cancelled = true;
     };
-  }, [deviceUuid]);
+  }, []);
 
-  function handleOpenGroup(groupUuid: string) {
-    setScreen({ name: "group", groupUuid });
-  }
+  useEffect(() => {
+    const stop = startGlobalPoller();
+    return stop;
+  }, []);
 
-  function handleGoHome() {
-    setScreen({ name: "home" });
-  }
-
-  async function handleRegister(name: string) {
-    const profile = await setProfileName(deviceUuid, name);
+  async function handleRegister(pseudo: string) {
+    const profile = await setProfilePseudo(pseudo);
     setProfileState({ status: "ready", profile });
   }
 
-  function Page() {
-    if (profileState.status !== "ready") {
-      return <IxSpinner />;
-    }
-    if (screen.name === "group") {
-      return (
-        <GroupScreen groupUuid={screen.groupUuid} profile={profileState.profile} onBack={handleGoHome} />
-      );
-    }
-    return <Home profile={profileState.profile} onOpenGroup={handleOpenGroup} />;
-  }
-
   // Onboarding has no groups to navigate yet, so it's shown without the app
-  // shell (no menu/header to frame around a single gate screen).
+  // shell (no menu/header to frame around a single gate screen), and without
+  // being a route of its own — it's a pre-app gate, not a page to link to,
+  // Back to, or reload directly into.
   if (profileState.status === "unregistered") {
     return <Onboarding onSubmit={handleRegister} />;
   }
 
   return (
     <IxApplication>
-      <IxApplicationHeader name="Dans la foule" appIcon="/logo.svg" appIconAlt="Dans la foule" />
-      <IxMenu>
-        <IxMenuItem icon={iconGroup} active={screen.name === "home"} onClick={handleGoHome}>
-          Groups
-        </IxMenuItem>
+      <ScrollRestoration />
+      <IxApplicationHeader
+        name="Dans la foule"
+        appIcon="/logo.svg"
+        appIconAlt="Dans la foule"
+      >
+        <HeaderActiveGroup />
+      </IxApplicationHeader>
+      <IxMenu
+        expand={menuExpanded}
+        onExpandChange={(event) => setMenuExpanded(event.detail)}
+      >
+        <GroupsMenu onNavigate={() => setMenuExpanded(false)} />
       </IxMenu>
-      <IxContent>{Page()}</IxContent>
+      <IxContent>
+        {profileState.status !== "ready" ? (
+          <IxSpinner />
+        ) : (
+          <Routes>
+            <Route path={ROUTES.home} element={<Home />} />
+            <Route path={ROUTES.me} element={<MeScreen />} />
+            <Route path="/groups/:groupId" element={<GroupScreen />} />
+            <Route path="*" element={<Navigate to={ROUTES.home} replace />} />
+          </Routes>
+        )}
+      </IxContent>
     </IxApplication>
   );
 }

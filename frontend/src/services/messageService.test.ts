@@ -1,93 +1,172 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { bytesToBase64 } from "../features/protocol/bytes";
+import { buildEnvelope } from "../features/protocol/crypto";
+import { _resetDbForTests } from "../features/protocol/db";
+import { getGroup } from "../features/protocol/group";
+import { getOrCreateIdentity } from "../features/protocol/identity";
+import type { Identity } from "../features/protocol/types";
+import type { Envelope } from "../features/protocol/types";
 import { createGroup } from "./groupService";
-import { _resetCacheForTests, localCache } from "./localCache";
-import { sendMessage, syncMessages } from "./messageService";
+import {
+  _resetSyncWatermarksForTests,
+  announce,
+  broadcastRename,
+  getMessages,
+  sendChatMessage,
+  syncMessages,
+} from "./messageService";
 
-function stubFetch(impl: (url: string, init?: RequestInit) => unknown) {
+// Mirrors the real GET response shape (see message_service.py): the server's
+// opaque cursor, never envelope.timestamp, is what syncMessages must watermark on.
+let nextCursor = 1;
+function received(envelope: Envelope) {
+  return { envelope, cursor: nextCursor++ };
+}
+
+interface StubHandlers {
+  post?: (body: Record<string, unknown>) => void;
+  get?: () => unknown[];
+}
+
+function stubFetch(handlers: StubHandlers) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string, init?: RequestInit) => ({
-      ok: true,
-      status: 200,
-      json: async () => impl(url, init),
-    })),
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        handlers.post?.(JSON.parse(init.body as string));
+        return { ok: true, status: 201, json: async () => ({ status: "accepted" }) };
+      }
+      return { ok: true, status: 200, json: async () => handlers.get?.() ?? [] };
+    }),
   );
 }
 
+async function makePeerIdentity(pseudo: string): Promise<Identity> {
+  const keyPair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])) as CryptoKeyPair;
+  const publicKeyRaw = new Uint8Array(await crypto.subtle.exportKey("raw", keyPair.publicKey));
+  return { privateKey: keyPair.privateKey, publicKey: keyPair.publicKey, publicKeyRaw, pseudo };
+}
+
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  _resetSyncWatermarksForTests();
+  await _resetDbForTests();
+});
+
 describe("messageService", () => {
-  afterEach(async () => {
-    vi.unstubAllGlobals();
-    await _resetCacheForTests();
+  it("sendChatMessage posts a real, encrypted protocol envelope for the group", async () => {
+    const { group } = await createGroup("Crew");
+    let posted: Record<string, unknown> | undefined;
+    stubFetch({ post: (body) => (posted = body) });
+
+    await sendChatMessage(group.groupId, "hello");
+
+    expect(posted?.groupId).toBe(group.groupId);
+    expect(posted?.v).toBe(1);
+    expect(posted?.ciphertext).not.toContain("hello"); // never sent in the clear
   });
 
-  it("sendMessage posts an encoded envelope and stores the result locally", async () => {
-    stubFetch((_url, init) => {
-      if (init?.method === "POST") {
-        const body = JSON.parse(init.body as string) as { uuid: string; content: string };
-        return { uuid: body.uuid, content: body.content, received_at: "2026-01-01T00:00:00Z" };
-      }
-      return [];
-    });
+  it("announce posts an envelope carrying the local identity's public key and pseudo", async () => {
+    const { group } = await createGroup("Crew");
+    const identity = await getOrCreateIdentity("Alice");
+    let posted: Record<string, unknown> | undefined;
+    stubFetch({ post: (body) => (posted = body) });
 
-    const message = await sendMessage({
-      groupUuid: "g1",
-      groupName: "Crew",
-      authorUuid: "u1",
-      authorName: "Alice",
-      text: "hi",
-    });
+    await announce(group.groupId);
 
-    expect(message.text).toBe("hi");
-    expect(message.receivedAt).toBe("2026-01-01T00:00:00Z");
-    await expect(localCache.getMessages("g1")).resolves.toEqual([message]);
+    expect(posted?.senderPub).toBe(bytesToBase64(identity.publicKeyRaw));
   });
 
-  it("syncMessages stores only messages belonging to a locally known group", async () => {
-    const known = await createGroup("Crew");
-    const knownEnvelope = JSON.stringify({
-      groupUuid: known.uuid,
-      groupName: "Crew",
-      authorUuid: "u1",
-      authorName: "Alice",
-      text: "for my group",
-    });
-    const unknownEnvelope = JSON.stringify({
-      groupUuid: "some-other-group",
-      groupName: "Other",
-      authorUuid: "u2",
-      authorName: "Bob",
-      text: "not for me",
-    });
-    stubFetch(() => [
-      { uuid: "m1", content: knownEnvelope, received_at: "2026-01-01T00:00:00Z" },
-      { uuid: "m2", content: unknownEnvelope, received_at: "2026-01-01T00:00:01Z" },
-    ]);
-
-    await syncMessages();
-
-    const stored = await localCache.getMessages(known.uuid);
-    expect(stored.map((m) => m.uuid)).toEqual(["m1"]);
-    await expect(localCache.getMessages("some-other-group")).resolves.toEqual([]);
+  it("sendChatMessage rejects for a group this device doesn't know", async () => {
+    await expect(sendChatMessage("00000000-0000-0000-0000-000000000000", "hi")).rejects.toThrow();
   });
 
-  it("syncMessages advances the watermark past every fetched message", async () => {
-    stubFetch(() => [{ uuid: "m1", content: "not json", received_at: "2026-01-01T00:00:05Z" }]);
+  it("syncMessages ingests a peer's chat and getMessages resolves their pseudo via a prior announce", async () => {
+    const { group: summary } = await createGroup("Crew");
+    const fullGroup = (await getGroup(summary.groupId))!;
+    const peer = await makePeerIdentity("Bob");
 
-    await syncMessages();
+    const announceEnvelope = await buildEnvelope(fullGroup.groupId, fullGroup.groupKey, peer, {
+      type: "announce",
+      pseudo: "Bob",
+    });
+    const chatEnvelope = await buildEnvelope(fullGroup.groupId, fullGroup.groupKey, peer, {
+      type: "chat",
+      text: "hi from Bob",
+      replyTo: null,
+      sentAt: Date.now(),
+    });
+    stubFetch({ get: () => [received(announceEnvelope), received(chatEnvelope)] });
 
-    await expect(localCache.getWatermark()).resolves.toBe("2026-01-01T00:00:05Z");
+    await syncMessages(fullGroup.groupId);
+    const messages = await getMessages(fullGroup.groupId);
+
+    expect(messages).toHaveLength(1);
+    const [message] = messages;
+    if (message.kind !== "chat") throw new Error("expected a chat message");
+    expect(message.text).toBe("hi from Bob");
+    expect(message.authorName).toBe("Bob");
+    expect(message.isSelf).toBe(false);
   });
 
-  it("syncMessages passes the stored watermark as the since query parameter", async () => {
-    await localCache.setWatermark("2026-01-01T00:00:00Z");
-    let requestedUrl = "";
-    stubFetch((url) => {
-      requestedUrl = url;
-      return [];
+  it("a message this device sent itself round-trips through sync and is marked isSelf", async () => {
+    const { group } = await createGroup("Crew");
+    let posted: Record<string, unknown> | undefined;
+    stubFetch({ post: (body) => (posted = body) });
+    await sendChatMessage(group.groupId, "hello from me");
+
+    stubFetch({ get: () => [received(posted as unknown as Envelope)] });
+    await syncMessages(group.groupId);
+    const messages = await getMessages(group.groupId);
+
+    expect(messages).toHaveLength(1);
+    const [message] = messages;
+    if (message.kind !== "chat") throw new Error("expected a chat message");
+    expect(message.authorName).toBe("You");
+    expect(message.isSelf).toBe(true);
+  });
+
+  it("falls back to a shortened pubkey when no announce was seen for the sender", async () => {
+    const { group: summary } = await createGroup("Crew");
+    const fullGroup = (await getGroup(summary.groupId))!;
+    const peer = await makePeerIdentity("Bob");
+    const chatEnvelope = await buildEnvelope(fullGroup.groupId, fullGroup.groupKey, peer, {
+      type: "chat",
+      text: "hi, no announce sent",
+      replyTo: null,
+      sentAt: Date.now(),
     });
+    stubFetch({ get: () => [received(chatEnvelope)] });
 
-    await syncMessages();
+    await syncMessages(fullGroup.groupId);
+    const messages = await getMessages(fullGroup.groupId);
 
-    expect(requestedUrl).toContain("since=2026-01-01T00%3A00%3A00Z");
+    const [message] = messages;
+    if (message.kind !== "chat") throw new Error("expected a chat message");
+    expect(message.authorName).toBe(bytesToBase64(peer.publicKeyRaw).slice(0, 8));
+  });
+
+  it("broadcastRename sends a rename envelope to every group this device belongs to", async () => {
+    const { group: groupA } = await createGroup("Crew A");
+    const { group: groupB } = await createGroup("Crew B");
+    const posted: Record<string, unknown>[] = [];
+    stubFetch({ post: (body) => void posted.push(body) });
+
+    await broadcastRename("Alice", "Alicia");
+
+    expect(posted).toHaveLength(2);
+    const groupIds = posted.map((envelope) => envelope.groupId).sort();
+    expect(groupIds).toEqual([groupA.groupId, groupB.groupId].sort());
+    // Content is opaque ciphertext, not asserted here — payload shape is
+    // covered by payloads.test.ts/pipeline.test.ts.
+  });
+
+  it("broadcastRename is a no-op when this device has no groups", async () => {
+    const posted: Record<string, unknown>[] = [];
+    stubFetch({ post: (body) => void posted.push(body) });
+
+    await broadcastRename("Alice", "Alicia");
+
+    expect(posted).toHaveLength(0);
   });
 });

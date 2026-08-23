@@ -34,6 +34,11 @@
       "path": "e2e",
       "envManager": "ms-python.python:poetry",
       "packageManager": "ms-python.python:poetry"
+    },
+    {
+      "path": ".",
+      "envManager": "ms-python.python:poetry",
+      "packageManager": "ms-python.python:poetry"
     }
   ]
 }
