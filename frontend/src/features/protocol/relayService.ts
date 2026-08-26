@@ -2,7 +2,11 @@
 // protocol logic (validation, dedup, decryption) lives in crypto.ts/pipeline.ts.
 import type { Envelope } from "./types";
 
-const BASE_PATH = "/api/v1/groups";
+// Absolute in the Capacitor native build (VITE_API_BASE_URL), relative in the
+// web build (empty — same-origin, via the Vite dev-server proxy or the
+// backend's own static hosting).
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+const BASE_PATH = `${API_BASE_URL}/api/v1/groups`;
 
 export interface ReceivedEnvelope {
   envelope: Envelope;
@@ -15,12 +19,52 @@ export interface ReceivedEnvelope {
   cursor: number;
 }
 
+// Connectivity state (doc/general-spec.md §4's server connection indicator),
+// derived from the outcome of the actual send/poll traffic below — no
+// separate health-check request. relayService is this app's sole HTTP fetch
+// choke point (every send and every poll goes through postEnvelope/
+// fetchEnvelopesSince), so tracking it here covers both without each caller
+// having to report in.
+export type ConnectivityStatus = "online" | "offline";
+export interface ConnectivityState {
+  status: ConnectivityStatus;
+  // Unix ms of the last completed request, regardless of outcome — null
+  // until the first one resolves.
+  lastCheckedAt: number | null;
+}
+
+let connectivityState: ConnectivityState = { status: "online", lastCheckedAt: null };
+const connectivityListeners = new Set<(state: ConnectivityState) => void>();
+
+function reportConnectivity(status: ConnectivityStatus): void {
+  connectivityState = { status, lastCheckedAt: Date.now() };
+  for (const listener of connectivityListeners) listener(connectivityState);
+}
+
+export function getConnectivityState(): ConnectivityState {
+  return connectivityState;
+}
+
+export function subscribeToConnectivity(listener: (state: ConnectivityState) => void): () => void {
+  connectivityListeners.add(listener);
+  return () => {
+    connectivityListeners.delete(listener);
+  };
+}
+
 export async function postEnvelope(envelope: Envelope): Promise<void> {
-  const response = await fetch(`${BASE_PATH}/${envelope.groupId}/messages`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(envelope),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_PATH}/${envelope.groupId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(envelope),
+    });
+  } catch (error) {
+    reportConnectivity("offline");
+    throw error;
+  }
+  reportConnectivity(response.ok ? "online" : "offline");
   if (!response.ok) {
     throw new Error(`Failed to send message: ${response.status}`);
   }
@@ -28,7 +72,14 @@ export async function postEnvelope(envelope: Envelope): Promise<void> {
 
 export async function fetchEnvelopesSince(groupId: string, since: number | null): Promise<ReceivedEnvelope[]> {
   const query = since !== null ? `?since=${since}` : "";
-  const response = await fetch(`${BASE_PATH}/${groupId}/messages${query}`);
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_PATH}/${groupId}/messages${query}`);
+  } catch (error) {
+    reportConnectivity("offline");
+    throw error;
+  }
+  reportConnectivity(response.ok ? "online" : "offline");
   if (!response.ok) {
     throw new Error(`Failed to fetch messages: ${response.status}`);
   }

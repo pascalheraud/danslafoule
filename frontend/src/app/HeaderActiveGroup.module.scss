@@ -1,7 +1,23 @@
-// The active group sits inside the header's secondary slot, so it stays
-// visually aligned with the app title instead of appearing as a separate bar
-// beneath the header.
+// Fixed rather than slotted into the header — see HeaderActiveGroup.tsx.
+// Spans the gap between the app title (left) and ConnectivityIndicator's own
+// fixed icon (right: 0.75rem, ~2.5rem wide) so the badge visually sits
+// between the two rather than crowding the icon; centered within that gap
+// since the exact width of the title (logo + app name) isn't known here.
+.wrapper {
+  position: fixed;
+  top: 0;
+  left: 3.5rem;
+  right: 3.5rem;
+  height: 2.5rem;
+  z-index: 1040;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
 .item {
+  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;

@@ -1,4 +1,5 @@
 import re
+import time
 
 from playwright.sync_api import Browser, BrowserContext, Locator, Page
 
@@ -130,6 +131,79 @@ class AppPage:
 
     def wait_for_group_to_have_no_unread_badge(self, group_name: str) -> None:
         self.group_card_badge(group_name).wait_for(state="hidden")
+
+    def system_event_texts(self) -> list[str]:
+        return self._page.locator('[data-testid="message-item"][data-kind="system"]').all_inner_texts()
+
+    def wait_for_system_event(self, content: str, timeout: float = 10000) -> None:
+        self._page.locator('[data-testid="message-item"][data-kind="system"]').filter(has_text=content).first.wait_for(
+            timeout=timeout
+        )
+
+    def delivery_status(self, message_text: str) -> str:
+        # data-status ("pending" | "sent" | "ackedByOne" | "ackedByAll") on
+        # the own-message ticks — see GroupScreen.tsx's DeliveryTicks.
+        bubble = self.message_bubbles().filter(has_text=message_text).first
+        return bubble.locator('[data-testid="delivery-status"]').get_attribute("data-status")
+
+    def open_members(self) -> None:
+        self._page.locator('[data-testid="show-members-button"]').click()
+        self._page.get_by_text("Group members").wait_for()
+
+    def member_rows(self) -> Locator:
+        return self._page.locator('[data-testid="member-item"]')
+
+    def wait_for_member(self, name: str, timeout: float = 15) -> None:
+        # The member list is a one-shot snapshot fetched when the modal
+        # opens (messageService.ts#getGroupMembers doesn't live-update while
+        # the modal is open), so waiting for a member to show up means
+        # reopening it on every poll rather than reading a static locator.
+        deadline = time.monotonic() + timeout
+        while True:
+            self.open_members()
+            found = self.member_rows().filter(has_text=name).count() > 0
+            self.close_modal("Group members")
+            if found:
+                return
+            if time.monotonic() > deadline:
+                raise AssertionError(f"never saw member {name!r} within {timeout}s")
+            time.sleep(0.5)
+
+    def open_message_detail(self, message_text: str) -> None:
+        self.message_bubbles().filter(has_text=message_text).first.click()
+        self._page.get_by_text("Message status").wait_for()
+
+    def close_modal(self, title: str) -> None:
+        # The underlying <dialog> is native and blocking (a backdrop covers
+        # the rest of the page while it's open) — showModal() also throws if
+        # called again on an already-open dialog, so callers opening a
+        # second modal/message-detail in the same test must close this one
+        # first (`title` is the modal's own header text, e.g. "Message
+        # status" or "Group members"). Escape triggers the dialog's native
+        # "cancel" → dismiss path.
+        self._page.keyboard.press("Escape")
+        self._page.get_by_text(title).wait_for(state="hidden")
+
+    def receipt_rows(self) -> Locator:
+        return self._page.locator('[data-testid="receipt-item"]')
+
+    def receipt_row_names(self) -> list[str]:
+        return self.receipt_rows().all_inner_texts()
+
+    def connectivity_status(self) -> str:
+        return self._page.locator('[data-testid="connectivity-indicator"]').get_attribute("data-status")
+
+    def wait_for_connectivity_status(self, status: str, timeout: float = 15000) -> None:
+        self._page.locator(f'[data-testid="connectivity-indicator"][data-status="{status}"]').wait_for(
+            timeout=timeout
+        )
+
+    def open_connectivity_popup(self) -> None:
+        self._page.locator('[data-testid="connectivity-indicator"]').click()
+        self._page.get_by_text("Server connection").wait_for()
+
+    def wait_for_text(self, text: str, exact: bool = True, timeout: float = 10000) -> None:
+        self._page.get_by_text(text, exact=exact).wait_for(timeout=timeout)
 
     def has_ack_for_group(self, group_id: str) -> bool:
         # Acks (§6.5) have no UI surface at all — they're purely a protocol

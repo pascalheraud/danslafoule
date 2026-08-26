@@ -220,6 +220,94 @@ protocol/logic layer (§1–§6) was in place. Backend untouched by any of this.
       real-browser Playwright e2e suite (§7), which now exists and exercises onboarding, create/join,
       chat send/receive, and pause/unread UI end to end.
 
+## 11. Offline-first messaging, delivery receipts, group members & connectivity (added post-closure)
+
+Not in the original plan, and added after §1–§10 had already closed — built in direct response to a
+new round of hands-on testing/feedback, the same way §10 was. Backend untouched by all of it; every
+new payload/state stays opaque to the relay like everything else in this issue.
+
+- [x] Offline send queue: `messages.ts`'s `OutboxEntry`/`addToOutbox`/`removeFromOutbox`/`getOutbox`,
+      `messageService.ts#queueChatMessage` (stores + shows the message locally as `"pending"`
+      immediately, before any network attempt) and `flushOutboxes` (retries every group's queue,
+      called right after a user-initiated send and on every `globalPoller` tick).
+- [x] WhatsApp-style delivery status per own message (pending → sent → acked by one → acked by all),
+      `messageService.ts#deriveDeliveryStatus`, rendered via `GroupScreen.tsx`'s `DeliveryTicks`.
+- [x] Member snapshot per message (`StoredChatMessage.knownMemberPubs`, captured at send time in
+      `queueChatMessage` and at receive time in `pipeline.ts`'s `chat` case): delivery status and the
+      message-detail recipient list are computed against *this* snapshot, never the group's live
+      member list — a member who joins later never becomes a retroactive expected recipient of older
+      messages. Fallback to the live member list for pre-existing local data stored before this field
+      existed (no IndexedDB migration; see `db.ts`'s `DB_VERSION` comment for the broader open question
+      of when a real migration/reset strategy becomes necessary).
+- [x] "Group members" screen: `messageService.ts#getGroupMembers`, a button in `GroupScreen`'s header
+      opening an `IxModal` listing every known member (pseudo, last-seen), self included.
+- [x] Message detail screen: `messageService.ts#getMessageReceipts`, opened by tapping any message —
+      the sender listed first (marked distinctly, not as an acked/not-acked row) then every other
+      member from that message's own snapshot, marked seen/not-seen.
+- [x] "X joined the group" system notice: `members.ts#recordAnnounce` now returns whether the pubkey
+      was new, `pipeline.ts`'s `announce` case synthesizes the notice (via the same `storeSystemEvent`
+      the `rename` notice already used) only the first time a given member is seen — a repeat
+      `announce` (re-join, periodic re-send) doesn't duplicate it.
+- [x] Rename notice wording changed from "X is now Y" to "X is now known as Y" (`pipeline.ts`, and the
+      protocol spec's own §6.4 description of it, kept in sync as the spec's own rule requires).
+- [x] Server connection indicator: `relayService.ts` derives online/offline state from the outcome of
+      its own existing traffic (send/poll), no dedicated health-check request; `ConnectivityIndicator.tsx`
+      renders it as a fixed-position icon (portaled onto `<body>`, not slotted into
+      `IxApplicationHeader`, whose secondary slot collapses into a "more" dropdown below the sm
+      breakpoint — defeating the point of an always-visible status on mobile) with a popup on click.
+      `HeaderActiveGroup` moved to the same fixed/portaled pattern for the same reason, which let the
+      header's now-always-empty "more" toggle disappear on its own (Siemens iX auto-hides it when its
+      slots have no assigned content).
+- [x] Fixed a real, pre-existing bug found while testing this: `globalPoller.ts`'s `tick()` had no
+      error handling around `syncMessages` — a single relay failure (e.g. a 500, or the relay simply
+      being down) threw past the `setTimeout` reschedule at the bottom of the function, permanently
+      killing the polling loop until a full page reload, with no visible symptom beyond "nothing
+      updates anymore". Fixed with a `try/finally` guaranteeing the reschedule always happens, plus a
+      per-group `.catch()` so one group's failure doesn't block the others. Regression-tested in
+      `globalPoller.test.ts` (verified failing against the old code, passing against the fix).
+      Related: `GroupScreen.tsx`'s unconditional `<IxSpinner>` while `group` was `null` was removed —
+      `GroupHeader()` already has a `group?.name ?? "Unnamed group"` fallback, so the spinner added no
+      information and, combined with the above bug, could spin forever with no way to tell a slow load
+      from a dead poller.
+- [x] Persona e2e scenarios (see below) landed in `e2e/tests/test_offline_delivery_and_snapshot_scenario.py`
+      and `e2e/tests/test_members_join_and_connectivity_scenario.py`, plus new `AppPage` helpers
+      (`delivery_status`, `open_members`/`member_rows`/`wait_for_member`, `open_message_detail`/
+      `receipt_rows`, `close_modal`, `wait_for_system_event`, `connectivity_status`/
+      `open_connectivity_popup`, `wait_for_text`). Scenario 6 (join notice idempotence) turned out to
+      have no reachable path through today's UI — Home's join flow short-circuits to an "already a
+      member" toast without re-announcing when the invite is for a group the device already knows, so
+      there's no way to make it emit a second real `announce` envelope from the browser. Moved that
+      specific assertion to a Vitest unit test instead (`pipeline.test.ts`: "synthesizes a 'joined the
+      group' notice on the first announce from a member, not on a later one", feeding
+      `onEnvelopeReceived` two distinct `announce` envelopes directly), which can and does exercise it;
+      the e2e scenario itself was trimmed to just "join shows the notice" (`test_join_shows_a_system_notice`).
+      6/6 e2e tests green (scenarios 1–5 and 7 all passed as designed, scenario 6 covered as above),
+      108/108 Vitest, `tsc -b` clean.
+- [x] `doc/general-spec.md` update — done.
+
+### Persona scenarios (this section)
+
+Personas: **Alice** (creates the group), **Bob** (joins early), **Carol** (joins later, after Alice's
+first message).
+
+1. **Alice sends while offline** — Alice's connection drops; she sends "hi offline", which appears
+   immediately marked as not-yet-sent and stays that way for at least one poll interval; once her
+   connection returns, it's sent automatically with no action from her.
+2. **Two-member delivery reaches "seen by everyone"** — Alice and Bob share a group; Alice sends a
+   message, Bob receives it, and Alice's copy progresses to "seen by everyone" (not stuck at "seen by
+   some") since Bob is the only other member.
+3. **A later-joining member doesn't retroactively apply** — Alice and Bob share a group and fully
+   exchange a message (reaches "seen by everyone"). Carol then joins. A new message Alice sends
+   afterward expects Carol as a recipient; the earlier message's status and detail screen are
+   unaffected by Carol ever existing.
+4. **Group members list** — opening the members screen shows every known member, including oneself.
+5. **Message detail lists the sender first** — tapping any message shows its sender first, marked
+   distinctly, then every other expected recipient with their seen/not-seen state.
+6. **Join notice, once** — a device joining a group produces a "X joined the group" notice for other
+   members, exactly once even if that device's announce is seen again later (idempotent).
+7. **Connectivity indicator** — reflects the real online/offline state of the underlying send/poll
+   traffic, and clicking it opens a popup with that status.
+
 ## Suggested execution order
 
 1. Shared envelope/payload contract (§1) — unblocks both sides in parallel.
@@ -361,3 +449,13 @@ protocol/logic layer (§1–§6) was in place. Backend untouched by any of this.
   (§8). This closes every remaining item in the plan except QR invite rendering/scanning (§4), which
   was always scoped as pure UI/device integration work, not protocol logic, and remains a clean
   candidate for a follow-up issue rather than this one.
+- 2026-08-26 — Landed §11: offline send queue, WhatsApp-style delivery status with a per-message
+  member snapshot (no retroactive expectations on later joiners), a group-members screen, a message
+  detail/receipts screen, a "joined the group" system notice, a server-connectivity indicator, and a
+  fix for a real pre-existing bug (`globalPoller.ts` dying permanently on any relay failure). Wrote the
+  7 persona e2e scenarios into this plan first, then two new e2e test files plus `AppPage` helpers, then
+  implemented; 6/6 e2e green (scenario 6's exactly-once guard moved to a Vitest unit test — no reachable
+  path through today's UI to exercise a second real `announce`, see §11's checklist), 108/108 Vitest,
+  `tsc -b` clean. `doc/general-spec.md` updated to match (offline queue, delivery status, member
+  snapshot, members screen with self always listed, message detail/receipts, join notice,
+  connectivity indicator) — §11 fully closed.

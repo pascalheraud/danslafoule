@@ -270,3 +270,11 @@ As soon as a technical or architectural decision is validated:
 This skill serves as the central reference for the monorepo and must remain consistent with the decisions actually implemented in the code.
 
 The change history itself (what shipped in each issue) lives in [`CHANGELOG.md`](../../../CHANGELOG.md) at the repo root, not in this skill — a skill documents standing conventions and architecture, not a per-issue timeline.
+
+**At the end of every implementation plan** (whether or not it changes this skill), update
+[`doc/general-spec.md`](../../../doc/general-spec.md) — a snapshot of what the app currently does,
+referencing [`doc/dans-la-foule-protocol-spec-en.md`](../../../doc/dans-la-foule-protocol-spec-en.md)
+for protocol detail rather than restating it. It holds current-state description only: no rationale,
+no history, no deferred/discarded options — those stay in the per-issue `doc/issues/*/spec.md` files
+and `CHANGELOG.md`. Amend the relevant section(s) in place (or add a new one for a new area); this is
+a distinct step from writing the per-issue `spec.md`/`plan.md`.

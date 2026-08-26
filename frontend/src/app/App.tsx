@@ -1,3 +1,5 @@
+import { App as CapacitorApp } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 import {
   IxApplication,
   IxApplicationHeader,
@@ -6,7 +8,7 @@ import {
   IxSpinner,
 } from "@siemens/ix-react";
 import { useEffect, useState } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { GroupScreen } from "../features/group/GroupScreen";
 import { Home } from "../features/home/Home";
 import { MeScreen } from "../features/me/MeScreen";
@@ -14,6 +16,7 @@ import { Onboarding } from "../features/onboarding/Onboarding";
 import { ROUTES } from "../routes";
 import { getProfile, setProfilePseudo } from "../services/profileService";
 import type { Profile } from "../services/types";
+import { ConnectivityIndicator } from "./ConnectivityIndicator";
 import { GroupsMenu } from "./GroupsMenu";
 import { HeaderActiveGroup } from "./HeaderActiveGroup";
 import { ScrollRestoration } from "./ScrollRestoration";
@@ -29,6 +32,26 @@ export function App() {
     status: "loading",
   });
   const [menuExpanded, setMenuExpanded] = useState(false);
+  const navigate = useNavigate();
+
+  // Android hardware/gesture back button: without this, Capacitor's default
+  // behavior navigates the WebView's own history (out of sync with
+  // MemoryRouter) or exits the app unexpectedly. No-op on the web.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const listener = CapacitorApp.addListener("backButton", ({ canGoBack }) => {
+      if (canGoBack) {
+        navigate(-1);
+      } else {
+        CapacitorApp.exitApp();
+      }
+    });
+
+    return () => {
+      listener.then((handle) => handle.remove());
+    };
+  }, [navigate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,9 +93,15 @@ export function App() {
         name="Dans la foule"
         appIcon="/logo.svg"
         appIconAlt="Dans la foule"
-      >
-        <HeaderActiveGroup />
-      </IxApplicationHeader>
+      />
+      {/* Both portal themselves onto <body> as fixed-position elements —
+          see their own files — so they're deliberately not children of
+          IxApplicationHeader (whose secondary slot collapses into a "more"
+          dropdown below the sm breakpoint, which would defeat the point of
+          keeping the active-group badge and the connectivity indicator
+          reachable on mobile without an extra tap). */}
+      <HeaderActiveGroup />
+      <ConnectivityIndicator />
       <IxMenu
         expand={menuExpanded}
         onExpandChange={(event) => setMenuExpanded(event.detail)}

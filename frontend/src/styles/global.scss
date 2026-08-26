@@ -10,9 +10,40 @@ body,
   height: 100%;
 }
 
+html,
+body {
+  // Prevents the WebView's rubber-band/pull-to-refresh overscroll on native
+  // (Capacitor); harmless no-op on the web.
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
   font-family: $font-family;
   background-color: $color-bg;
   color: $color-text-primary;
+}
+
+// <ix-content>'s shadow-DOM :host rule hardcodes 2rem left/right padding
+// (no CSS var hook to override cleanly). :host's specificity beats a plain
+// outer tag selector, so !important is the only lever here. Padding is
+// handled per-screen instead (e.g. Home.module.scss), so this is zeroed out.
+ix-content {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+:root {
+  // <ix-application> sizes itself to 100vw/100vh (see its :host rule),
+  // which ignores any padding put on body/html — so feeding env() as
+  // regular body padding (tried first) had no effect. Siemens iX instead
+  // reads the safe area through these four custom properties internally
+  // (ix-application/-header/-menu, ix-modal all consume them, defaulting
+  // to 0) — CSS custom properties inherit through shadow DOM, env()
+  // padding on an ancestor does not. Resolves to 0 on the web, so this is
+  // a no-op there.
+  --ix-safe-area-inset-top: env(safe-area-inset-top);
+  --ix-safe-area-inset-right: env(safe-area-inset-right);
+  --ix-safe-area-inset-bottom: env(safe-area-inset-bottom);
+  --ix-safe-area-inset-left: env(safe-area-inset-left);
 }

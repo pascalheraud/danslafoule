@@ -64,6 +64,28 @@ describe("onEnvelopeReceived", () => {
     expect(Object.values(members)).toEqual([{ pseudo: "Alice", lastSeen: envelope.timestamp }]);
   });
 
+  it("synthesizes a 'joined the group' notice on the first announce from a member, not on a later one", async () => {
+    const { senderIdentity, group } = await setup();
+    const receiver = await receiverIdentity("Bob");
+    const firstAnnounce = await buildEnvelope(group.groupId, group.groupKey, senderIdentity, {
+      type: "announce",
+      pseudo: "Alice",
+    });
+    await onEnvelopeReceived(firstAnnounce, { group, identity: receiver, send: vi.fn() });
+
+    // A distinct envelope (different messageId, so seenCache dedup doesn't
+    // hide this case) from the same already-known sender — e.g. a future
+    // periodic re-announce — must not duplicate the join notice.
+    const secondAnnounce = await buildEnvelope(group.groupId, group.groupKey, senderIdentity, {
+      type: "announce",
+      pseudo: "Alice",
+    });
+    await onEnvelopeReceived(secondAnnounce, { group, identity: receiver, send: vi.fn() });
+
+    const events = await getSystemEvents(group.groupId);
+    expect(events).toEqual([{ messageId: firstAnnounce.messageId, text: "Alice joined the group", at: firstAnnounce.timestamp }]);
+  });
+
   it("processes a location message with replace semantics", async () => {
     const { senderIdentity, group } = await setup();
     const receiver = await receiverIdentity("Bob");
@@ -155,7 +177,10 @@ describe("onEnvelopeReceived", () => {
     expect(Object.values(members)).toEqual([{ pseudo: "Alicia", lastSeen: renameEnvelope.timestamp }]);
 
     const events = await getSystemEvents(group.groupId);
-    expect(events).toEqual([{ messageId: renameEnvelope.messageId, text: "Alice is now Alicia", at: renameEnvelope.timestamp }]);
+    expect(events).toEqual([
+      { messageId: announceEnvelope.messageId, text: "Alice joined the group", at: announceEnvelope.timestamp },
+      { messageId: renameEnvelope.messageId, text: "Alice is now known as Alicia", at: renameEnvelope.timestamp },
+    ]);
   });
 
   it("does not synthesize a system notice when oldPseudo equals the new pseudo", async () => {

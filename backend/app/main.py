@@ -16,6 +16,7 @@ from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.messages import router as messages_router
+from app.core.config import settings
 from app.core.database import SCHEMA, Base, engine
 from app.core.logging import configure_logging
 
@@ -47,7 +48,7 @@ app = FastAPI(title="Dans la foule API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=settings.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
