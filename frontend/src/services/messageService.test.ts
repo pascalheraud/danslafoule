@@ -11,10 +11,20 @@ import {
   _resetSyncWatermarksForTests,
   announce,
   broadcastRename,
+  flushOutboxes,
   getMessages,
-  sendChatMessage,
+  queueChatMessage,
   syncMessages,
 } from "./messageService";
+
+// sendChatMessage's old synchronous-POST behavior, rebuilt on top of the
+// offline-first queue (queueChatMessage stores locally + enqueues,
+// flushOutboxes does the actual POST) — keeps the existing tests' shape
+// (assert on what got POSTed) without re-deriving that flow in every test.
+async function sendChatMessage(groupId: string, text: string): Promise<void> {
+  await queueChatMessage(groupId, text);
+  await flushOutboxes();
+}
 
 // Mirrors the real GET response shape (see message_service.py): the server's
 // opaque cursor, never envelope.timestamp, is what syncMessages must watermark on.
@@ -101,9 +111,11 @@ describe("messageService", () => {
     await syncMessages(fullGroup.groupId);
     const messages = await getMessages(fullGroup.groupId);
 
-    expect(messages).toHaveLength(1);
-    const [message] = messages;
-    if (message.kind !== "chat") throw new Error("expected a chat message");
+    // Also carries the "Bob joined the group" system notice synthesized from
+    // the announce — see pipeline.test.ts for that behavior directly.
+    expect(messages).toHaveLength(2);
+    const message = messages.find((m) => m.kind === "chat");
+    if (!message || message.kind !== "chat") throw new Error("expected a chat message");
     expect(message.text).toBe("hi from Bob");
     expect(message.authorName).toBe("Bob");
     expect(message.isSelf).toBe(false);

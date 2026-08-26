@@ -3,18 +3,25 @@ import {
   IxButton,
   IxContentHeader,
   IxEmptyState,
+  IxIcon,
   IxIconButton,
   IxInput,
-  IxSpinner,
+  IxModal,
+  IxModalContent,
+  IxModalHeader,
   IxTypography,
 } from "@siemens/ix-react";
 import {
+  iconCheck,
+  iconClock,
   iconCommentAlt,
   iconCopy,
+  iconDoubleCheck,
   iconDoubleChevronDown,
   iconPause,
   iconPlay,
   iconSendRight,
+  iconUserGroup,
 } from "@siemens/ix-icons/icons";
 import type { IxInputCustomEvent } from "@siemens/ix/components";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -29,8 +36,20 @@ import {
   setGroupPaused,
 } from "../../services/groupService";
 import { subscribeToGlobalPoll } from "../../services/globalPoller";
-import { getMessages, sendChatMessage } from "../../services/messageService";
-import type { ChatMessageView, GroupSummary } from "../../services/types";
+import {
+  flushOutboxes,
+  getGroupMembers,
+  getMessageReceipts,
+  getMessages,
+  queueChatMessage,
+} from "../../services/messageService";
+import type {
+  ChatMessageView,
+  DeliveryStatus,
+  GroupSummary,
+  MemberView,
+  MessageReceiptView,
+} from "../../services/types";
 import { useAppNavigate } from "../../useAppNavigate";
 import styles from "./GroupScreen.module.scss";
 
@@ -63,6 +82,24 @@ export function GroupScreen() {
   >({});
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
+  const [members, setMembers] = useState<MemberView[]>([]);
+  const [detailMessageId, setDetailMessageId] = useState<string | null>(null);
+  const [receipts, setReceipts] = useState<MessageReceiptView[]>([]);
+  // <IxModal>'s declarative React wrapper doesn't call the underlying
+  // <dialog>'s native showModal() on mount (only closeModal/dismissModal are
+  // wired), so we grab the real element via ref and open it ourselves — see
+  // the effects below, one per modal.
+  const membersModalRef = useRef<HTMLIxModalElement>(null);
+  const receiptsModalRef = useRef<HTMLIxModalElement>(null);
+
+  useEffect(() => {
+    if (showMembers) void membersModalRef.current?.showModal();
+  }, [showMembers]);
+
+  useEffect(() => {
+    if (detailMessageId !== null) void receiptsModalRef.current?.showModal();
+  }, [detailMessageId]);
   // "auto": the message list follows new messages automatically. Switches to
   // "scrolling" the moment the user scrolls away from the bottom, and back
   // to "auto" only once they scroll all the way back down themselves (or use
@@ -265,15 +302,31 @@ export function GroupScreen() {
         // into a group the client would otherwise stop polling right after.
         await setGroupPaused(group.groupId, false);
       }
-      await sendChatMessage(group.groupId, text.trim());
+      // Stored and shown locally as "pending" immediately, so this doesn't
+      // block on network connectivity — see queueChatMessage.
+      await queueChatMessage(group.groupId, text.trim());
       setText("");
       // Sending is bottom-anchored activity — jump back to "auto" so the
       // reply round-trip (and anything else that arrived) scrolls into view.
       setScrollState("auto");
       await poll(true);
+      await flushOutboxes(); // immediate send attempt; retried on later poll ticks if offline
+      await refreshLocal();
     } finally {
       setSending(false);
     }
+  }
+
+  async function handleShowMembers() {
+    if (!groupId) return;
+    setMembers(await getGroupMembers(groupId));
+    setShowMembers(true);
+  }
+
+  async function handleMessageClick(messageId: string, authorPub: string) {
+    if (!groupId) return;
+    setReceipts(await getMessageReceipts(groupId, messageId, authorPub));
+    setDetailMessageId(messageId);
   }
 
   function GroupHeader() {
@@ -299,6 +352,13 @@ export function GroupScreen() {
             </IxButton>
             <IxIconButton
               variant="secondary"
+              icon={iconUserGroup}
+              aria-label="View group members"
+              data-testid="show-members-button"
+              onClick={handleShowMembers}
+            />
+            <IxIconButton
+              variant="secondary"
               icon={group?.paused ? iconPlay : iconPause}
               aria-label={
                 group?.paused
@@ -311,6 +371,28 @@ export function GroupScreen() {
           </div>
         </div>
       </>
+    );
+  }
+
+  // WhatsApp-style delivery status (doc/general-spec.md §4): a clock while
+  // queued offline, a single check once accepted by the relay, a double
+  // check once at least one member has acked it, turning green once every
+  // member has. Only rendered for the sender's own messages.
+  function DeliveryTicks({ status }: { status: DeliveryStatus }) {
+    const icon = status === "pending" ? iconClock : status === "sent" ? iconCheck : iconDoubleCheck;
+    const label =
+      status === "pending"
+        ? "Not sent yet"
+        : status === "sent"
+          ? "Sent"
+          : status === "ackedByAll"
+            ? "Seen by everyone"
+            : "Seen by some members";
+    const color = status === "ackedByAll" ? "var(--theme-color-success, #2ba02b)" : undefined;
+    return (
+      <span className={styles.deliveryTicks} data-testid="delivery-status" data-status={status}>
+        <IxIcon name={icon} size="16" color={color} aria-label={label} />
+      </span>
     );
   }
 
@@ -332,7 +414,6 @@ export function GroupScreen() {
   function ChatMessageItem(
     message: Extract<ChatMessageView, { kind: "chat" }>,
   ) {
-    const initials = message.authorName.slice(0, 2).toUpperCase();
     const isNew = message.messageId in newMessageExpiry;
     const classNames = [
       styles.message,
@@ -355,9 +436,10 @@ export function GroupScreen() {
         data-kind="chat"
         data-new={isNew}
         data-self={message.isSelf}
+        onClick={() => handleMessageClick(message.messageId, message.authorPub)}
       >
         <IxAvatar
-          initials={initials}
+          initials={message.authorInitials}
           aria-label={`Message from ${message.authorName}`}
         />
         <div className={styles.messageBody}>
@@ -365,6 +447,7 @@ export function GroupScreen() {
           <IxTypography format="body" data-testid="message-content">
             {message.text}
           </IxTypography>
+          {message.isSelf && <DeliveryTicks status={message.deliveryStatus} />}
         </div>
       </li>
     );
@@ -387,7 +470,7 @@ export function GroupScreen() {
 
   return (
     <div className={styles.group}>
-      {group === null ? <IxSpinner /> : GroupHeader()}
+      {GroupHeader()}
       <div className={styles.messagesWrapper}>
         <div
           className={styles.messagesScroll}
@@ -429,6 +512,79 @@ export function GroupScreen() {
           Send
         </IxButton>
       </form>
+      <IxModal
+        ref={membersModalRef}
+        disableAnimation
+        onDialogClose={() => setShowMembers(false)}
+        onDialogDismiss={() => setShowMembers(false)}
+      >
+        <IxModalHeader>Group members</IxModalHeader>
+        <IxModalContent>
+          {members.length === 0 ? (
+            <IxTypography format="body">No members known yet.</IxTypography>
+          ) : (
+            <ul className={styles.memberList} data-testid="member-list">
+              {members.map((member) => (
+                <li key={member.senderPub} data-testid="member-item">
+                  <IxAvatar
+                    initials={member.pseudo.slice(0, 2).toUpperCase()}
+                    aria-label={member.pseudo}
+                  />
+                  <div>
+                    <IxTypography format="body">{member.pseudo}</IxTypography>
+                    <IxTypography format="body-sm" textColor="soft">
+                      Last active {new Date(member.lastSeen).toLocaleString()}
+                    </IxTypography>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </IxModalContent>
+      </IxModal>
+      <IxModal
+        ref={receiptsModalRef}
+        disableAnimation
+        onDialogClose={() => setDetailMessageId(null)}
+        onDialogDismiss={() => setDetailMessageId(null)}
+      >
+        <IxModalHeader>Message status</IxModalHeader>
+        <IxModalContent>
+          {receipts.length <= 1 ? (
+            <IxTypography format="body">No other members in this group yet.</IxTypography>
+          ) : (
+            <ul className={styles.receiptList} data-testid="receipt-list">
+              {receipts.map((receipt) => (
+                <li
+                  key={receipt.senderPub}
+                  data-testid="receipt-item"
+                  data-acked={receipt.acked}
+                  data-sender={receipt.isSender}
+                >
+                  <IxTypography format="body">{receipt.pseudo}</IxTypography>
+                  <span className={styles.receiptStatus}>
+                    {receipt.isSender ? (
+                      <>
+                        <IxIcon name={iconSendRight} size="16" />
+                        <IxTypography format="body-sm">Sender</IxTypography>
+                      </>
+                    ) : (
+                      <>
+                        <IxIcon
+                          name={receipt.acked ? iconDoubleCheck : iconClock}
+                          size="16"
+                          color={receipt.acked ? "var(--theme-color-success, #2ba02b)" : undefined}
+                        />
+                        <IxTypography format="body-sm">{receipt.acked ? "Seen" : "Not seen yet"}</IxTypography>
+                      </>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </IxModalContent>
+      </IxModal>
     </div>
   );
 }

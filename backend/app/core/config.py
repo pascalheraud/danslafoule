@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     message_ttl_hours: float = 1
     log_level: str = "INFO"
     sql_echo: bool = False
+    # Web dev origin by default; a real deployment adds the Capacitor native
+    # app's origin (e.g. "https://localhost" for Android) via the
+    # CORS_ORIGINS env var (JSON list), on top of the web app's own origin.
+    cors_origins: list[str] = ["http://localhost:5173"]
 
     @property
     def message_ttl(self) -> timedelta:

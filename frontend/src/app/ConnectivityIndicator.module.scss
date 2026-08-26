@@ -1,0 +1,19 @@
+// Fixed rather than slotted into the header — see ConnectivityIndicator.tsx.
+// Positioned to clear both the header's own content and IxApplicationHeader's
+// "more" dropdown toggle (top-right) on narrow viewports.
+.fixedIndicator {
+  position: fixed;
+  top: 0.5rem;
+  right: 0.75rem;
+  // Above ix-application-header (Siemens iX sets it to 1030), or the header
+  // paints over this despite both being fixed/positioned — verified via
+  // elementFromPoint, not just visually.
+  z-index: 1040;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}

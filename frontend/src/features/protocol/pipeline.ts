@@ -5,7 +5,7 @@ import { bytesToBase64 } from "./bytes";
 import { buildEnvelope, verifyAndDecryptEnvelope } from "./crypto";
 import { incrementUnreadCount, touchGroupActivity } from "./group";
 import { getAckers, recordAck, storeChatMessage, storeSystemEvent } from "./messages";
-import { recordAnnounce } from "./members";
+import { getMembers, recordAnnounce } from "./members";
 import { storeLocation } from "./locations";
 import { hasSeen, markSeen } from "./seenCache";
 import type { Envelope, Group, Identity } from "./types";
@@ -29,17 +29,34 @@ export async function onEnvelopeReceived(envelope: Envelope, deps: PipelineDeps)
 
   const { payload } = verified;
   switch (payload.type) {
-    case "announce":
-      await recordAnnounce(envelope.groupId, envelope.senderPub, payload.pseudo, envelope.timestamp);
+    case "announce": {
+      const isNewMember = await recordAnnounce(envelope.groupId, envelope.senderPub, payload.pseudo, envelope.timestamp);
+      if (isNewMember) {
+        await storeSystemEvent(
+          envelope.groupId,
+          envelope.messageId,
+          `${payload.pseudo} joined the group`,
+          envelope.timestamp,
+        );
+      }
       return;
-    case "chat":
-      await storeChatMessage(envelope.groupId, envelope.senderPub, envelope.messageId, payload);
+    }
+    case "chat": {
+      // Snapshot, not a live lookup at display time: whoever joins the group
+      // afterwards shouldn't retroactively become someone this message was
+      // "supposed to" reach — see StoredChatMessage.knownMemberPubs.
+      const members = await getMembers(envelope.groupId);
+      const knownMemberPubs = Array.from(
+        new Set([...Object.keys(members), envelope.senderPub, bytesToBase64(deps.identity.publicKeyRaw)]),
+      );
+      await storeChatMessage(envelope.groupId, envelope.senderPub, envelope.messageId, payload, knownMemberPubs);
       await touchGroupActivity(envelope.groupId); // resets the inactivity/auto-pause clock
       // A message this device authored isn't "unread" for it, even once the
       // relay round-trip hands it back via polling.
       if (!isFromSelf) await incrementUnreadCount(envelope.groupId);
       await emitAck(envelope.messageId, deps);
       return;
+    }
     case "location":
       await storeLocation(envelope.groupId, envelope.senderPub, payload);
       await touchGroupActivity(envelope.groupId);
@@ -55,7 +72,7 @@ export async function onEnvelopeReceived(envelope: Envelope, deps: PipelineDeps)
         await storeSystemEvent(
           envelope.groupId,
           envelope.messageId,
-          `${payload.oldPseudo} is now ${payload.pseudo}`,
+          `${payload.oldPseudo} is now known as ${payload.pseudo}`,
           envelope.timestamp,
         );
       }

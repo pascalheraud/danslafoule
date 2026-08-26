@@ -4,6 +4,13 @@
 // a single map-like value (identity, groups, members, ...).
 
 const DB_NAME = "danslafoule-protocol";
+// Bump only alongside a real decision on how to handle existing local data
+// that's genuinely incompatible with the new schema (not just a new
+// optional field — those are handled with a runtime fallback at the call
+// site instead, see e.g. messageService.ts's knownMemberPubs handling).
+// Options considered but not yet chosen: an onupgradeneeded migration
+// per version, or detecting the mismatch and wiping the local DB with a
+// clear warning to the user (loses the local identity and joined groups).
 const DB_VERSION = 1;
 
 export const STORE_NAMES = ["identity", "groups", "members", "messages", "locations", "seenCache"] as const;

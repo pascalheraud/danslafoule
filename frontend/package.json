@@ -9,11 +9,17 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:mobile": "tsc -b && vite build --mode mobile",
+    "cap:sync": "npx cap sync android",
     "preview": "vite preview",
     "test": "vitest run",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@capacitor-community/safe-area": "^7.0.0",
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/app": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
     "@siemens/ix": "^5.1.1",
     "@siemens/ix-icons": "^3.5.0",
     "@siemens/ix-react": "^5.1.1",
@@ -23,6 +29,7 @@
     "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.0.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",
     "@types/react": "^19.0.0",

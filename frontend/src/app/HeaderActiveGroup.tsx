@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { buildRoute } from "../routes";
 import { listGroups } from "../services/groupService";
 import { subscribeToGlobalPoll } from "../services/globalPoller";
@@ -8,10 +9,15 @@ import { getLastViewedGroupId } from "./recentGroup";
 import { showToast } from "./toast";
 import styles from "./HeaderActiveGroup.module.scss";
 
-// Shown next to the app name in the header, on every page: the group the
-// user most recently opened (see GroupScreen's setLastViewedGroupId call),
-// with an unread badge if it has anything new — a quick way back into
-// "the group I was just in" without opening the menu.
+// Fixed-position, on every page — see ConnectivityIndicator.tsx's identical
+// pattern/comment: IxApplicationHeader's secondary slot collapses into a
+// "more" dropdown below the sm breakpoint, which would hide this behind an
+// extra tap on mobile. Portaled onto <body> and pinned in place instead,
+// which also lets the header's "more" toggle be hidden entirely (see
+// App.module.scss) now that nothing actually needs it.
+// Shows the group the user most recently opened (see GroupScreen's
+// setLastViewedGroupId call), with an unread badge if it has anything new —
+// a quick way back into "the group I was just in" without opening the menu.
 export function HeaderActiveGroup() {
   const navigate = useAppNavigate();
   const [group, setGroup] = useState<GroupSummary | null>(null);
@@ -51,21 +57,23 @@ export function HeaderActiveGroup() {
     }
   }
 
-  return (
-    <button
-      type="button"
-      slot="secondary"
-      className={styles.item}
-      data-testid="header-active-group"
-      data-group-id={group.groupId}
-      onClick={handleClick}
-    >
-      <span className={styles.name}>{group.name}</span>
-      {group.unreadCount > 0 && (
-        <span className={styles.badge} data-testid="header-unread-badge">
-          {group.unreadCount}
-        </span>
-      )}
-    </button>
+  return createPortal(
+    <div className={styles.wrapper}>
+      <button
+        type="button"
+        className={styles.item}
+        data-testid="header-active-group"
+        data-group-id={group.groupId}
+        onClick={handleClick}
+      >
+        <span className={styles.name}>{group.name}</span>
+        {group.unreadCount > 0 && (
+          <span className={styles.badge} data-testid="header-unread-badge">
+            {group.unreadCount}
+          </span>
+        )}
+      </button>
+    </div>,
+    document.body,
   );
 }

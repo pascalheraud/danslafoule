@@ -11,16 +11,16 @@ const payload: ChatPayload = { type: "chat", text: "hello", replyTo: null, sentA
 
 describe("storeChatMessage", () => {
   it("stores a new message", async () => {
-    await storeChatMessage("group-1", "pub-a", "msg-1", payload);
+    await storeChatMessage("group-1", "pub-a", "msg-1", payload, ["pub-a"]);
 
     expect(await getChatMessages("group-1")).toEqual([
-      { messageId: "msg-1", senderPub: "pub-a", text: "hello", replyTo: null, sentAt: 1000 },
+      { messageId: "msg-1", senderPub: "pub-a", text: "hello", replyTo: null, sentAt: 1000, knownMemberPubs: ["pub-a"] },
     ]);
   });
 
   it("dedups by messageId (resend/rebroadcast, §6.5)", async () => {
-    await storeChatMessage("group-1", "pub-a", "msg-1", payload);
-    await storeChatMessage("group-1", "pub-a", "msg-1", { ...payload, text: "different text, same id" });
+    await storeChatMessage("group-1", "pub-a", "msg-1", payload, ["pub-a"]);
+    await storeChatMessage("group-1", "pub-a", "msg-1", { ...payload, text: "different text, same id" }, ["pub-a"]);
 
     const messages = await getChatMessages("group-1");
     expect(messages).toHaveLength(1);
